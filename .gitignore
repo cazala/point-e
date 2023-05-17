@@ -3,4 +3,7 @@ __pycache__/
 point_e_model_cache/
 .ipynb_checkpoints/
 .DS_Store
-
+bin
+lib
+mesh.ply
+mesh.glb
