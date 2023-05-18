@@ -13,3 +13,4 @@ files/*.ply
 dist/
 ply2glb/*.ply
 ply2glb/*.glb
+shap_e_model_cache/
