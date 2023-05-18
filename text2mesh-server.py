@@ -4,6 +4,7 @@ import time
 import threading
 import uuid
 import http
+import json
 from urllib.parse import urlparse, parse_qs
 
 # Setup model
@@ -32,8 +33,15 @@ kill_lock = threading.Lock()
 busy_lock = threading.Lock()
 
 # global variables
-prompt = ""
-request_file_path = ""
+ply_request = {
+    "prompt": "",
+    "uuid": "",
+    "grid_size": 32,
+    "sampler": "fast",
+    "file": ""
+}
+
+sampler_option = ["fast", "slow"]
 
 def func_thread_polling_prompt():    
     device_target = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -58,7 +66,7 @@ def func_thread_polling_prompt():
     print('downloading upsampler checkpoint...')
     upsampler_model.load_state_dict(load_checkpoint('upsample', device))
 
-    sampler = PointCloudSampler(
+    sampler_fast = PointCloudSampler(
         device=device,
         models=[base_model, upsampler_model],
         diffusions=[base_diffusion, upsampler_diffusion],
@@ -69,31 +77,44 @@ def func_thread_polling_prompt():
         model_kwargs_key_filter=('texts', ''), # Do not condition the upsampler at all
     )
 
+    sampler_slow = PointCloudSampler(
+        device=device,
+        models=[base_model, upsampler_model],
+        diffusions=[base_diffusion, upsampler_diffusion],
+        num_points=[1024, 4096 - 1024],
+        aux_channels=['R', 'G', 'B'],
+        guidance_scale=[3.0, 0.0],
+        model_kwargs_key_filter=('texts', ''), # Do not condition the upsampler at all
+    )
+
+    print('creating SDF model...')
+    name = 'sdf'
+    model = model_from_config(MODEL_CONFIGS[name], device)
+    model.eval()
+
+    print('loading SDF model...')
+    model.load_state_dict(load_checkpoint(name, device))
+    
     while True:
         while not busy_lock.locked():
             if kill_lock.locked():
                 return
             time.sleep(0.1)
 
-        global prompt, request_file_path
+        global ply_request
 
-        print(f"> prompt selected: '{prompt}'")
+        if ply_request.get('sampler') == 'slow':
+            sampler = sampler_slow
+        else:
+            sampler = sampler_fast
+
+        print(f"> prompt selected: '{ply_request.get('prompt')}'")
         # Produce a sample from the model.
         samples = None
-        for x in tqdm(sampler.sample_batch_progressive(batch_size=1, model_kwargs=dict(texts=[prompt]))):
+        for x in tqdm(sampler.sample_batch_progressive(batch_size=1, model_kwargs=dict(texts=[ply_request.get('prompt')]))):
             samples = x
 
         pc = sampler.output_to_point_clouds(samples)[0]
-
-        device = torch.device(device_target)
-
-        print('creating SDF model...')
-        name = 'sdf'
-        model = model_from_config(MODEL_CONFIGS[name], device)
-        model.eval()
-
-        print('loading SDF model...')
-        model.load_state_dict(load_checkpoint(name, device))
 
         import skimage.measure # To avoid AttributeError
 
@@ -102,11 +123,12 @@ def func_thread_polling_prompt():
             pc=pc,
             model=model,
             batch_size=4096,
-            grid_size=64, # increase to 128 for resolution used in evals
+            grid_size=ply_request.get('grid_size'), # increase to 128 for resolution used in evals
             progress=True,
         )
 
 
+        request_file_path = ply_request.get('file')
         print(f"saving ply on {request_file_path}")
         # Write the mesh to a PLY file to import into some other program.
         with open(request_file_path, 'wb') as f:
@@ -120,7 +142,7 @@ class Server(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith('/prompt'):
             self.do_prompt()
         elif self.path.startswith('/files'):
-            return http.server.SimpleHTTPRequestHandler.do_GET(self)
+            response = http.server.SimpleHTTPRequestHandler.do_GET(self)
         else: 
             self.send_response(404)
             self.send_header("Content-type", "text/plain")
@@ -128,6 +150,12 @@ class Server(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(bytes("Not found", "utf-8"))
             return
     
+    def send_bad_request(self, msg):
+        self.send_response(400)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(bytes(msg, "utf-8"))
+
     def do_prompt(self):
         if busy_lock.locked():
             self.send_response(423)
@@ -136,35 +164,41 @@ class Server(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(bytes("Busy", "utf-8"))
             return
         else:
-            global prompt, request_file_path
+            global ply_request
             
             maybe_prompt = None
-            try:
-                query = urlparse(self.path).query
-                query_obj = parse_qs(query)
-                maybe_prompt = query_obj.get('text', None)[0]
-            except:
-                pass
+            query = urlparse(self.path).query
+            query_obj = parse_qs(query)
+            
+            maybe_prompt = query_obj.get('text', None)[0] if query_obj.get('text', None) != None else None
+            grid_size = int(query_obj.get('grid_size', None)[0]) if query_obj.get('grid_size', None) != None else 32
+            sampler = query_obj.get('sampler', None)[0] if query_obj.get('sampler', None) != None else 'fast'
 
-            print(query, query_obj, maybe_prompt)
+            print(query, query_obj, maybe_prompt, grid_size, sampler)
 
             if type(maybe_prompt) != str: 
-                self.send_response(400)
-                self.send_header("Content-type", "text/plain")
-                self.end_headers()
-                self.wfile.write(bytes("You have to pass `text` parameter. Example: ?text=green%20tree", "utf-8"))
+                self.send_bad_request("You have to pass `text` parameter. Example: ?text=green tree")
+                return
+
+            if type(grid_size) != int or grid_size < 16 or grid_size > 128: 
+                self.send_bad_request("grid_size param must be a integer from 16 to 128. Example: ?text=green tree")
+                return
+
+            if type(sampler) != str or not sampler in sampler_option: 
+                self.send_bad_request(f"sampler param options available: {sampler_option}")
                 return
 
             # Set a prompt
-            prompt = maybe_prompt
-
-            request_uuid = uuid.uuid4()
-            request_file_path = f"files/{request_uuid}.ply"
+            ply_request["prompt"] = maybe_prompt
+            ply_request["uuid"] = str(uuid.uuid4())
+            ply_request["grid_size"] = grid_size
+            ply_request["sampler"] = sampler
+            ply_request["file"] = f"files/{ply_request.get('uuid')}.ply"
 
             self.send_response(200)
             self.send_header("Content-type", "text/json")
             self.end_headers()
-            self.wfile.write(bytes(f"{{\"id\":\"{request_uuid}\",\"file\":\"{request_file_path}\"}}", "utf-8"))
+            self.wfile.write(bytes(json.dumps(ply_request, indent = 2), "utf-8"))
 
             busy_lock.acquire()
 
