@@ -9,3 +9,5 @@ lib
 mesh.glb
 share
 node_modules
+files/*.ply
+dist/
