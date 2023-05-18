@@ -102,7 +102,7 @@ def func_thread_polling_prompt():
             pc=pc,
             model=model,
             batch_size=4096,
-            grid_size=32, # increase to 128 for resolution used in evals
+            grid_size=64, # increase to 128 for resolution used in evals
             progress=True,
         )
 

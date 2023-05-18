@@ -2,7 +2,7 @@ const fetch = require('node-fetch')
 const FormData = require('form-data')
 const fs = require('fs')
 
-const TEXT_TO_MESH_SERVER = 'https://2218-181-13-71-243.sa.ngrok.io'
+const TEXT_TO_MESH_SERVER = 'http://localhost:8080'//'https://2218-181-13-71-243.sa.ngrok.io'
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -21,7 +21,7 @@ async function sendPrompt(prompt) {
 async function isReady(id) {
   const res = await fetch(`${TEXT_TO_MESH_SERVER}/files/${id}.ply`)
   const text = await res.text()
-  return !text.includes('<!DOCTYPE html>')
+  return !text.includes('<!DOCTYPE')
 }
 
 async function getPly(id) {
