@@ -2,7 +2,7 @@ const fetch = require('node-fetch')
 const FormData = require('form-data')
 const fs = require('fs')
 
-const TEXT_TO_MESH_SERVER = 'http://localhost:8080'//'https://2218-181-13-71-243.sa.ngrok.io'
+const TEXT_TO_MESH_SERVER = 'https://e25b-181-27-196-154.ngrok-free.app'
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -12,8 +12,9 @@ async function sendPrompt(prompt) {
   const res = await fetch(`${TEXT_TO_MESH_SERVER}/prompt?text=${prompt}`)
   if (res.ok) {
     const data = await res.json()
-    return data.id
+    return data.uuid
   } else {
+    console.log(await res.text())
     return null
   }
 }
@@ -21,7 +22,7 @@ async function sendPrompt(prompt) {
 async function isReady(id) {
   const res = await fetch(`${TEXT_TO_MESH_SERVER}/files/${id}.ply`)
   const text = await res.text()
-  return !text.includes('<!DOCTYPE')
+  return !text.includes('<!DOCTYPE') && !text.toLowerCase().includes('busy')
 }
 
 async function getPly(id) {
@@ -106,7 +107,7 @@ async function main() {
   while (!promptId) {
     await sleep(1000)
     console.log(`Pending...`)
-    promptId = await sendPrompt(promptId)
+    promptId = await sendPrompt(prompt)
   }
   console.log(promptId)
   console.log(`Get Ply...`)
