@@ -1,8 +1,38 @@
 const fetch = require('node-fetch')
-const { Readable } = require('stream');
-const { finished } = require('stream/promises');
 const FormData = require('form-data')
 const fs = require('fs')
+
+const TEXT_TO_MESH_SERVER = 'https://2218-181-13-71-243.sa.ngrok.io'
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function sendPrompt(prompt) {
+  const res = await fetch(`${TEXT_TO_MESH_SERVER}/prompt?text=${prompt}`)
+  if (res.ok) {
+    const data = await res.json()
+    return data.id
+  } else {
+    return null
+  }
+}
+
+async function isReady(id) {
+  const res = await fetch(`${TEXT_TO_MESH_SERVER}/files/${id}.ply`)
+  const text = await res.text()
+  return !text.includes('<!DOCTYPE html>')
+}
+
+async function getPly(id) {
+  const res = await fetch(`${TEXT_TO_MESH_SERVER}/files/${id}.ply`)
+  const fileStream = fs.createWriteStream(`./${id}.ply`);
+  return new Promise((resolve, reject) => {
+    res.body.pipe(fileStream);
+    res.body.on("error", reject);
+    fileStream.on("finish", () => resolve(true));
+  });
+}
 
 async function uploadFile(path) {
   const body = new FormData()
@@ -52,10 +82,7 @@ async function getUrl(id) {
     if (data.state === "Processed") {
       return data.payload
     } else {
-      // poll
-      console.log('Pending...')
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      return getUrl(id)
+      return null
     }
   } else {
     throw new Error(await res.text())
@@ -73,21 +100,43 @@ async function downloadFile(url, path) {
 }
 
 async function main() {
-  const path = './mesh.ply'
+  const prompt = 'a red car'
+  console.log(`Sending prompt...`)
+  let promptId = await sendPrompt(prompt)
+  while (!promptId) {
+    await sleep(1000)
+    console.log(`Pending...`)
+    promptId = await sendPrompt(promptId)
+  }
+  console.log(promptId)
+  console.log(`Get Ply...`)
+  let success = await isReady(promptId)
+  while (!success) {
+    await sleep(1000)
+    console.log(`Pending...`)
+    success = await isReady(promptId)
+  }
+  await getPly(promptId)
+  console.log(`Done...`)
   console.log('Uploading file...')
-  const id = await uploadFile(path)
+  const uploadId = await uploadFile(`${promptId}.ply`)
   console.log(`Done!`)
-  console.log(`ID: ${id}`)
+  console.log(`ID: ${uploadId}`)
   console.log(`Converting...`)
-  await convertFile(id)
+  await convertFile(uploadId)
   console.log(`Done!`)
   console.log('Getting url...')
-  const url = await getUrl(id)
+  let url = await getUrl(uploadId)
+  while (!url) {
+    await sleep(1000)
+    console.log(`Pending...`)
+    url = await getUrl(uploadId)
+  }
   console.log(`Done!`)
   console.log(`URL: ${url}`)
   console.log('Downloading file...')
-  await downloadFile(url, 'mesh.glb')
+  await downloadFile(url, `${promptId}.glb`)
   console.log(`Done!`)
 }
 
-main().catch(e => console.error(e))
+main().catch(e => console.error('Error', e))

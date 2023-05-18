@@ -11,3 +11,5 @@ share
 node_modules
 files/*.ply
 dist/
+ply2glb/*.ply
+ply2glb/*.glb
