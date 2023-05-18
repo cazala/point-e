@@ -46,6 +46,7 @@ sampler = PointCloudSampler(
     num_points=[1024, 4096 - 1024],
     aux_channels=['R', 'G', 'B'],
     guidance_scale=[3.0, 0.0],
+    use_karras=[32,32],
     model_kwargs_key_filter=('texts', ''), # Do not condition the upsampler at all
 )
 
@@ -76,7 +77,7 @@ mesh = marching_cubes_mesh(
     pc=pc,
     model=model,
     batch_size=4096,
-    grid_size=128, # increase to 128 for resolution used in evals
+    grid_size=32,
     progress=True,
 )
 
