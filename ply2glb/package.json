@@ -1,0 +1,17 @@
+{
+  "name": "test-ply-glb",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.6.11",
+    "stream": "^0.0.2"
+  }
+}

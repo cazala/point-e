@@ -5,6 +5,7 @@ point_e_model_cache/
 .DS_Store
 bin
 lib
-mesh.ply
+/mesh.ply
 mesh.glb
 share
+node_modules
